@@ -1,0 +1,142 @@
+version: '3.8'
+
+services:
+  # PostgreSQL with TimescaleDB extension
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: event-analytics-timescaledb
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-events_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5433:5432"  # Changed to 5433 to avoid conflict with local PostgreSQL
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - event-network
+
+  # Redis for caching and rate limiting
+  redis:
+    image: redis:7-alpine
+    container_name: event-analytics-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6380:6379"  # Changed to 6380 to avoid conflict with local Redis
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - event-network
+
+  # NATS JetStream
+  nats:
+    image: nats:latest
+    container_name: event-analytics-nats
+    command:
+      - "-js"
+      - "-sd"
+      - "/data"
+      - "-m"
+      - "8222"
+    ports:
+      - "4222:4222"  # Client connections
+      - "8222:8222"  # HTTP monitoring
+      - "6222:6222"  # Cluster connections
+    volumes:
+      - nats_data:/data
+    networks:
+      - event-network
+
+  # FastAPI application
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: event-analytics-api
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@timescaledb:5432/${POSTGRES_DB:-events_db}
+      - REDIS_URL=redis://redis:6379
+      - NATS_URL=nats://nats:4222
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app/app
+      - ./data:/app/data
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    networks:
+      - event-network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # NATS worker for async event processing
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: event-analytics-worker
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@timescaledb:5432/${POSTGRES_DB:-events_db}
+      - REDIS_URL=redis://redis:6379
+      - NATS_URL=nats://nats:4222
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+    volumes:
+      - ./app:/app/app
+      - ./data:/app/data
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    networks:
+      - event-network
+    command: python -m app.workers.event_processor
+
+  # Prometheus for metrics (optional)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: event-analytics-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - event-network
+    profiles:
+      - monitoring
+
+volumes:
+  timescaledb_data:
+  redis_data:
+  nats_data:
+  prometheus_data:
+
+networks:
+  event-network:
+    driver: bridge
+

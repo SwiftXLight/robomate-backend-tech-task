@@ -1,0 +1,77 @@
+[tool.poetry]
+name = "event-analytics-service"
+version = "0.1.0"
+description = "Event ingestion and analytics service"
+authors = ["Andrii"]
+readme = "README.md"
+packages = [{include = "app"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.109.0"
+uvicorn = {extras = ["standard"], version = "^0.27.0"}
+pydantic = "^2.5.0"
+pydantic-settings = "^2.1.0"
+asyncpg = "^0.29.0"
+sqlalchemy = "^2.0.25"
+redis = "^5.0.1"
+nats-py = "^2.6.0"
+structlog = "^24.1.0"
+prometheus-client = "^0.19.0"
+python-json-logger = "^2.0.7"
+typer = "^0.9.0"
+rich = "^13.7.0"
+pandas = "^2.1.4"
+duckdb = "^0.9.2"
+pyarrow = "^14.0.2"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.4"
+pytest-asyncio = "^0.23.3"
+pytest-cov = "^4.1.0"
+httpx = "^0.26.0"
+pytest-mock = "^3.12.0"
+black = "^24.1.1"
+ruff = "^0.1.14"
+mypy = "^1.8.0"
+testcontainers = "^3.7.1"
+
+[tool.poetry.scripts]
+import_events = "scripts.import_events:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --cov=app --cov-report=term-missing --cov-report=html"
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+
